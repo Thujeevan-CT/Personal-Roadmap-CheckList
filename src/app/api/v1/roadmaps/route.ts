@@ -1,10 +1,17 @@
+import type { Types } from "mongoose";
 import { NextRequest } from "next/server";
 import { connectDB } from "@/lib/db/connection";
 import { Roadmap, Module, SubModule, ChecklistItem, RoadmapFolder } from "@/lib/db/models";
 import { requireSession } from "@/lib/auth/helpers";
 import { successResponse, errorResponse, parseBody } from "@/lib/api/helpers";
-import { serializeDoc, serializeMany, toObjectId } from "@/lib/db/serialize";
+import { serializeDoc, toObjectId } from "@/lib/db/serialize";
 import { getRoadmapProgress } from "@/lib/utils/progress";
+import type { Module as ModuleType, SubModule as SubModuleType, ChecklistItem as ChecklistItemType } from "@/types";
+
+type LeanDoc = { _id: Types.ObjectId; [key: string]: unknown };
+type LeanModule = LeanDoc & { roadmapId: Types.ObjectId };
+type LeanSubModule = LeanDoc & { moduleId: Types.ObjectId; roadmapId: Types.ObjectId };
+type LeanChecklistItem = LeanDoc & { subModuleId: Types.ObjectId; roadmapId: Types.ObjectId };
 
 export async function GET() {
   try {
@@ -19,30 +26,33 @@ export async function GET() {
       );
     }
     const roadmapIds = roadmaps.map((r) => r._id);
-    const modules = await Module.find({ roadmapId: { $in: roadmapIds } }).lean();
+    const modulesRaw = await Module.find({ roadmapId: { $in: roadmapIds } }).lean();
+    const modules = modulesRaw as LeanModule[];
     const moduleIds = modules.map((m) => m._id);
-    const submodules = await SubModule.find({ moduleId: { $in: moduleIds } }).lean();
+    const submodulesRaw = await SubModule.find({ moduleId: { $in: moduleIds } }).lean();
+    const submodules = submodulesRaw as LeanSubModule[];
     const subModuleIds = submodules.map((s) => s._id);
-    const checklistItems = await ChecklistItem.find({
+    const checklistItemsRaw = await ChecklistItem.find({
       subModuleId: { $in: subModuleIds },
     }).lean();
+    const checklistItems = checklistItemsRaw as LeanChecklistItem[];
     const mods = modules.map((m) => ({
       ...m,
       _id: m._id.toString(),
       roadmapId: m.roadmapId.toString(),
-    }));
+    })) as ModuleType[];
     const subs = submodules.map((s) => ({
       ...s,
       _id: s._id.toString(),
       moduleId: s.moduleId.toString(),
       roadmapId: s.roadmapId.toString(),
-    }));
+    })) as SubModuleType[];
     const items = checklistItems.map((c) => ({
       ...c,
       _id: c._id.toString(),
       subModuleId: c.subModuleId.toString(),
       roadmapId: c.roadmapId.toString(),
-    }));
+    })) as ChecklistItemType[];
     const list = (roadmaps as any[]).map((r) => {
       const ser = serializeDoc(r);
       const progress = getRoadmapProgress(mods, subs, items, r._id.toString());
