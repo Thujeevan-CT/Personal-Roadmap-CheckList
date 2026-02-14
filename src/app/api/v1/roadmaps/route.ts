@@ -27,15 +27,15 @@ export async function GET() {
     }
     const roadmapIds = roadmaps.map((r) => r._id);
     const modulesRaw = await Module.find({ roadmapId: { $in: roadmapIds } }).lean();
-    const modules = modulesRaw as LeanModule[];
+    const modules = modulesRaw as unknown as LeanModule[];
     const moduleIds = modules.map((m) => m._id);
     const submodulesRaw = await SubModule.find({ moduleId: { $in: moduleIds } }).lean();
-    const submodules = submodulesRaw as LeanSubModule[];
+    const submodules = submodulesRaw as unknown as LeanSubModule[];
     const subModuleIds = submodules.map((s) => s._id);
     const checklistItemsRaw = await ChecklistItem.find({
       subModuleId: { $in: subModuleIds },
     }).lean();
-    const checklistItems = checklistItemsRaw as LeanChecklistItem[];
+    const checklistItems = checklistItemsRaw as unknown as LeanChecklistItem[];
     const mods = modules.map((m) => ({
       ...m,
       _id: m._id.toString(),
