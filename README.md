@@ -1,5 +1,17 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+**MyFlow** — Structured roadmap management: create roadmaps, modules, submodules, checklists, notes, and file attachments; visualize as a flow; sign in with Google.
+
+## Environment
+
+Create a `.env` file with:
+
+- `MONGODB_URI` — MongoDB connection string
+- `AUTH_SECRET` — Random secret for NextAuth (e.g. `openssl rand -base64 32`)
+- `AUTH_URL` or `NEXTAUTH_URL` — App URL (e.g. `http://localhost:3000`)
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google OAuth credentials
+- `DO_SPACES_ENDPOINT`, `DO_SPACES_KEY`, `DO_SPACES_SECRET`, `DO_SPACES_BUCKET`, `DO_SPACES_REGION` — DigitalOcean Spaces (S3-compatible) for file uploads
+
 ## Getting Started
 
 First, run the development server:

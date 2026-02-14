@@ -1,6 +1,6 @@
 # MyFlow — Product Requirements Document
 
-> **Version:** 1.0
+> **Version:** 1.1
 > **Last Updated:** 2026-02-11
 > **Status:** Draft
 > **Author:** Thujeevan
@@ -29,7 +29,7 @@
 
 ## 1. Product Vision
 
-**MyFlow** is a structured roadmap management system that allows a single user to create hierarchical execution plans (e.g., "Germany Relocation"), track progress via checklists, attach notes and documents, and centralize execution knowledge.
+**MyFlow** is a structured roadmap management system that allows a single user to create hierarchical execution plans (e.g., "Germany Relocation"), visualize them as interactive node-based flowcharts (inspired by roadmap.sh), track progress via checklists, attach notes and documents, and centralize execution knowledge.
 
 ### Primary Use Cases
 
@@ -49,6 +49,7 @@
 
 - A **structured goal execution tracker**
 - A **hierarchical checklist + documentation system**
+- A **visual roadmap builder** with interactive flowchart previews
 - A focused, narrow-scope tool that does one thing well
 
 ### This is NOT
@@ -250,7 +251,42 @@ interface FileAttachment {
 }
 ```
 
-### 5.8 MongoDB Indexes
+### 5.8 RoadmapLayout
+
+```typescript
+interface RoadmapLayout {
+  _id: ObjectId;
+  roadmapId: ObjectId;        // ref: Roadmap (1:1 relationship)
+  nodes: NodePosition[];
+  edges: EdgeDefinition[];
+  viewport?: {                 // last saved viewport state
+    x: number;
+    y: number;
+    zoom: number;
+  };
+  createdBy: ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface NodePosition {
+  entityId: string;            // Module or SubModule _id (or roadmapId for root)
+  entityType: 'roadmap' | 'module' | 'submodule';
+  position: { x: number; y: number };
+  width?: number;              // optional custom node width
+  height?: number;             // optional custom node height
+}
+
+interface EdgeDefinition {
+  id: string;
+  source: string;              // source entityId
+  target: string;              // target entityId
+  type?: 'default' | 'step' | 'smoothstep';
+  label?: string;
+}
+```
+
+### 5.9 MongoDB Indexes
 
 ```javascript
 // Users
@@ -283,6 +319,10 @@ interface FileAttachment {
 { subModuleId: 1 }
 { roadmapId: 1 }
 { createdBy: 1 }
+
+// RoadmapLayouts
+{ roadmapId: 1 }              // unique
+{ createdBy: 1 }
 ```
 
 ---
@@ -300,6 +340,8 @@ interface FileAttachment {
 | RM-05 | View roadmap detail | P0 | Shows all modules with individual progress bars |
 | RM-06 | Archive roadmap | P1 | Move to archived state, hidden from main dashboard by default |
 | RM-07 | Reorder roadmaps | P2 | Drag to reorder on dashboard |
+| RM-08 | Import roadmap from JSON | P0 | Paste JSON text or upload a `.json` file to bulk-create a roadmap with all modules, submodules, and checklist items in one action. Validates against the import schema. |
+| RM-09 | Export roadmap as JSON | P1 | Export a full roadmap (with all children) as a downloadable `.json` file matching the import schema. |
 
 ### 6.2 Module Management
 
@@ -362,6 +404,159 @@ interface FileAttachment {
 
 **Supported file types:** PDF, images (png/jpg/webp), documents (doc/docx), spreadsheets (xls/xlsx), text files.
 
+### 6.7 Visual Roadmap Preview
+
+| ID | Requirement | Priority | Details |
+|---|---|---|---|
+| VP-01 | View roadmap as flowchart | P0 | Node-based visual graph showing Modules and SubModules as connected nodes (similar to roadmap.sh). Accessible from roadmap detail page via a "Visual" tab/toggle. |
+| VP-02 | Node status coloring | P0 | Nodes color-coded by status: not_started (gray), in_progress (amber), completed (green), blocked (red). Module nodes show aggregated progress. |
+| VP-03 | Lock mode (default) | P0 | Read-only canvas. Pan and zoom only. Click a SubModule node to open its detail panel. Click a Module node to show inline summary. No structural edits. |
+| VP-04 | Quick status toggle (Lock Mode) | P0 | Right-click or long-press a SubModule node to open a context menu for quick status change. |
+| VP-05 | Pan and zoom | P0 | Mouse wheel zoom, click-and-drag pan, pinch zoom on touch. Minimap in bottom-right corner. |
+| VP-06 | Progress overlay | P1 | Each Module node shows a small progress bar or percentage inside. Roadmap overall progress shown in canvas header. |
+| VP-07 | Fit-to-view | P1 | Button to auto-fit all nodes into the visible viewport. |
+| VP-08 | Lock/Edit mode toggle | P0 | Toggle button switches between Lock mode (read-only) and Edit mode (structural changes). Default: Lock mode. |
+
+### 6.8 Visual Roadmap Editor
+
+| ID | Requirement | Priority | Details |
+|---|---|---|---|
+| VE-01 | Dedicated editor page | P0 | Full-screen editor at `/roadmap/:id/editor`. No sidebar — full canvas area. Top toolbar only. |
+| VE-02 | Add node | P0 | Add Module or SubModule nodes via toolbar button or by double-clicking empty canvas. Node type selected from a small popup. |
+| VE-03 | Delete node | P0 | Select node + Delete key, or right-click context menu. Confirmation dialog. Deletes the underlying entity from the database. |
+| VE-04 | Move node | P0 | Free-form drag nodes to reposition on the canvas. Position persisted to RoadmapLayout on save. |
+| VE-05 | Connect nodes | P0 | Drag from a node's source handle to another node's target handle to create an edge. Edges represent hierarchy (Module → SubModule). |
+| VE-06 | Delete edge | P0 | Click edge to select, then Delete key or right-click "Remove". |
+| VE-07 | Edit node inline | P0 | Double-click a node label to edit title inline. Press Enter to save. |
+| VE-08 | Auto-layout | P1 | Toolbar button to auto-arrange all nodes in a clean top-down tree layout using dagre/elkjs algorithm. |
+| VE-09 | Save layout | P0 | Explicit "Save" button in toolbar. Also auto-saves every 30 seconds if layout is dirty. Visual save-status indicator. |
+| VE-10 | Editor toolbar | P0 | Top bar: Back to roadmap, Save status, Auto-layout, Zoom in/out/fit, Undo/Redo, Lock/Edit toggle. |
+| VE-11 | Undo/Redo | P1 | Track node move, add, delete, edge add/delete. Stack-based undo up to 50 steps. |
+| VE-12 | Node resize | P2 | Drag node edges to resize. Optional for v1. |
+
+### 6.9 JSON Import / Export
+
+The primary workflow: User generates a roadmap structure using an AI tool (ChatGPT, Gemini, Claude, etc.) in MyFlow's JSON format, then imports it to instantly create a fully populated roadmap.
+
+#### Import Schema
+
+```typescript
+interface RoadmapImport {
+  title: string;                    // required, 1-200 chars
+  description?: string;             // optional, max 1000 chars
+  icon?: string;                    // optional, single emoji
+  modules: ModuleImport[];          // required, at least 1
+}
+
+interface ModuleImport {
+  title: string;                    // required, 1-200 chars
+  description?: string;
+  submodules?: SubModuleImport[];   // optional
+}
+
+interface SubModuleImport {
+  title: string;                    // required, 1-200 chars
+  description?: string;
+  status?: 'not_started' | 'in_progress' | 'completed' | 'blocked';  // default: not_started
+  dueDate?: string;                 // ISO 8601 date string, optional
+  checklist?: string[];             // array of checklist item titles, optional
+  notes?: string[];                 // array of plain text or markdown notes, optional
+}
+```
+
+#### JSON Example (for AI prompt reference)
+
+```json
+{
+  "title": "Germany Relocation",
+  "description": "Complete plan for relocating to Berlin, Germany",
+  "icon": "🇩🇪",
+  "modules": [
+    {
+      "title": "Visa & Immigration",
+      "description": "All visa and legal documentation",
+      "submodules": [
+        {
+          "title": "Gather Documents",
+          "status": "in_progress",
+          "checklist": [
+            "Birth certificate apostilled",
+            "Passport renewed",
+            "University transcripts translated",
+            "Employment contract signed"
+          ],
+          "notes": [
+            "Apostille office hours: Mon-Fri 9am-3pm. Appointment required."
+          ]
+        },
+        {
+          "title": "Apply for Blue Card",
+          "status": "not_started",
+          "dueDate": "2026-04-15",
+          "checklist": [
+            "Fill application form",
+            "Book embassy appointment",
+            "Prepare photo (biometric)",
+            "Pay application fee"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Housing",
+      "submodules": [
+        {
+          "title": "Temporary Accommodation",
+          "checklist": [
+            "Book Airbnb for first 2 weeks",
+            "Research co-living options"
+          ]
+        },
+        {
+          "title": "Permanent Apartment",
+          "checklist": [
+            "Create Immobilienscout24 account",
+            "Prepare SCHUFA equivalent documents",
+            "Schedule viewings"
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+#### Import Requirements
+
+| ID | Requirement | Priority | Details |
+|---|---|---|---|
+| IM-01 | Paste JSON text | P0 | Textarea input where user pastes JSON directly. Real-time syntax validation. |
+| IM-02 | Upload JSON file | P0 | File upload accepting `.json` files only. Max 1MB. Reads and parses the file content. |
+| IM-03 | Schema validation | P0 | Validate against the import schema before processing. Display clear, line-specific error messages for invalid JSON. |
+| IM-04 | Preview before import | P0 | After validation, show a tree preview of what will be created (roadmap → modules → submodules with counts). User confirms before actual creation. |
+| IM-05 | Bulk creation | P0 | Single API call creates the roadmap + all modules + all submodules + all checklist items + all notes in one transaction. |
+| IM-06 | Import progress | P1 | For large roadmaps, show a progress indicator during the creation process. |
+| IM-07 | Error recovery | P1 | If import fails mid-way, roll back all created entities (atomic operation). Show error with details. |
+| IM-08 | AI prompt template | P1 | Provide a copyable prompt template that users can paste into any AI tool to generate a roadmap in the correct format. |
+
+#### Export Requirements
+
+| ID | Requirement | Priority | Details |
+|---|---|---|---|
+| EX-01 | Export full roadmap | P1 | Download a `.json` file containing the roadmap + all modules + submodules + checklist items + notes, matching the import schema. |
+| EX-02 | Export from menu | P1 | Available in the roadmap detail page menu (three-dot) as "Export as JSON". |
+| EX-03 | File naming | P1 | Downloaded file named `{roadmap-title-slug}-{date}.json` (e.g., `germany-relocation-2026-02-11.json`). |
+
+#### Size Limits
+
+| Limit | Value |
+|---|---|
+| Max JSON payload size | 1MB |
+| Max modules per import | 50 |
+| Max submodules per module | 50 |
+| Max checklist items per submodule | 100 |
+| Max notes per submodule | 20 |
+
 ---
 
 ## 7. Non-Functional Requirements
@@ -395,6 +590,8 @@ interface FileAttachment {
 | **TipTap** | 2.x | Rich text editor for notes |
 | **@dnd-kit** | 6.x | Drag-and-drop for reordering |
 | **date-fns** | 4.x | Date formatting & manipulation |
+| **@xyflow/react** | 12.x | Node-based flowchart canvas for visual roadmap |
+| **dagre / elkjs** | latest | Auto-layout algorithm for node arrangement |
 | **lucide-react** | latest | Icon set |
 
 ### Backend
@@ -477,6 +674,8 @@ User clicks "Sign in with Google"
 | PATCH | `/roadmaps/:id` | Update roadmap |
 | DELETE | `/roadmaps/:id` | Delete roadmap (cascade) |
 | PATCH | `/roadmaps/reorder` | Bulk update order |
+| POST | `/roadmaps/import` | Bulk-create roadmap from JSON import schema (atomic) |
+| GET | `/roadmaps/:id/export` | Export full roadmap as JSON matching import schema |
 
 ### Modules
 
@@ -526,6 +725,15 @@ User clicks "Sign in with Google"
 | POST | `/files` | Register uploaded file in DB |
 | GET | `/files/:id/download` | Get presigned download URL |
 | DELETE | `/files/:id` | Delete file (S3 + DB) |
+
+### Roadmap Layout (Visual)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/roadmaps/:roadmapId/layout` | Get layout (nodes + edges + viewport) for visual view |
+| PUT | `/roadmaps/:roadmapId/layout` | Save/overwrite entire layout (nodes, edges, viewport) |
+| PATCH | `/roadmaps/:roadmapId/layout/nodes` | Batch update node positions only (lightweight drag-save) |
+| POST | `/roadmaps/:roadmapId/layout/auto-arrange` | Server-side auto-layout calculation, returns new positions |
 
 ### Common Response Format
 
@@ -597,6 +805,20 @@ User clicks "Sign in with Google"
    - Checklist section with add/toggle/reorder
    - Notes section (TipTap editor)
    - Files section (upload/list/delete)
+
+5. **Roadmap Visual Preview** (`/roadmap/:id` — "Visual" tab)
+   - Interactive node-based flowchart of the roadmap hierarchy
+   - Modules as primary nodes, SubModules as child nodes, edges showing relationships
+   - Nodes color-coded by status/progress
+   - Lock mode (default): pan, zoom, click nodes for details, right-click for status toggle
+   - Edit mode: drag nodes, add/delete nodes and edges
+
+6. **Roadmap Visual Editor** (`/roadmap/:id/editor`)
+   - Full-screen canvas, no sidebar
+   - Top toolbar: back, save status, auto-layout, zoom controls, undo/redo, mode toggle
+   - Free-form node placement and edge creation
+   - Inline node title editing, double-click to add nodes
+   - Auto-save indicator + explicit save button
 
 ### Design Tokens
 
@@ -675,7 +897,9 @@ src/
 │   │   │   └── page.tsx            # Roadmap grid
 │   │   └── roadmap/
 │   │       └── [roadmapId]/
-│   │           ├── page.tsx        # Roadmap detail
+│   │           ├── page.tsx        # Roadmap detail (list + visual tabs)
+│   │           ├── editor/
+│   │           │   └── page.tsx    # Full-screen visual editor
 │   │           └── module/
 │   │               └── [moduleId]/
 │   │                   └── page.tsx
@@ -686,8 +910,14 @@ src/
 │   │   └── v1/
 │   │       ├── roadmaps/
 │   │       │   ├── route.ts        # GET (list), POST (create)
+│   │       │   ├── import/
+│   │       │   │   └── route.ts    # POST (bulk import from JSON)
 │   │       │   ├── [id]/
-│   │       │   │   └── route.ts    # GET, PATCH, DELETE
+│   │       │   │   ├── route.ts    # GET, PATCH, DELETE
+│   │       │   │   ├── export/
+│   │       │   │   │   └── route.ts  # GET (export as JSON)
+│   │       │   │   └── layout/
+│   │       │   │       └── route.ts  # GET, PUT (visual layout)
 │   │       │   └── reorder/
 │   │       │       └── route.ts    # PATCH
 │   │       ├── modules/
@@ -739,7 +969,8 @@ src/
 │   ├── roadmap/
 │   │   ├── roadmap-card.tsx
 │   │   ├── roadmap-form.tsx
-│   │   └── roadmap-grid.tsx
+│   │   ├── roadmap-grid.tsx
+│   │   └── roadmap-import.tsx      # JSON import dialog (paste + upload)
 │   ├── module/
 │   │   ├── module-card.tsx
 │   │   ├── module-form.tsx
@@ -749,6 +980,15 @@ src/
 │   │   ├── submodule-form.tsx
 │   │   ├── submodule-detail.tsx
 │   │   └── status-badge.tsx
+│   ├── visual/
+│   │   ├── flow-canvas.tsx         # @xyflow/react wrapper
+│   │   ├── module-node.tsx         # Custom Module node component
+│   │   ├── submodule-node.tsx      # Custom SubModule node component
+│   │   ├── roadmap-node.tsx        # Root roadmap node
+│   │   ├── node-context-menu.tsx   # Right-click context menu for nodes
+│   │   ├── editor-toolbar.tsx      # Top toolbar for editor page
+│   │   ├── minimap-panel.tsx       # Minimap overlay
+│   │   └── auto-layout.ts         # Dagre/ELK layout algorithm wrapper
 │   ├── checklist/
 │   │   ├── checklist-item.tsx
 │   │   └── checklist-list.tsx
@@ -769,7 +1009,8 @@ src/
 │   │       ├── submodule.ts
 │   │       ├── checklist-item.ts
 │   │       ├── note.ts
-│   │       └── file.ts
+│   │       ├── file.ts
+│       └── roadmap-layout.ts
 │   ├── auth/
 │   │   ├── config.ts               # NextAuth configuration
 │   │   └── helpers.ts              # getServerSession wrapper
@@ -779,7 +1020,8 @@ src/
 │   │   └── helpers.ts              # Response formatters, error handler
 │   └── utils/
 │       ├── progress.ts             # Progress calculation utilities
-│       └── reorder.ts              # Reorder logic (order field management)
+│       ├── reorder.ts              # Reorder logic (order field management)
+│       └── import-schema.ts        # JSON import schema validation + types
 │
 ├── hooks/
 │   ├── use-roadmaps.ts             # TanStack Query hooks
@@ -787,7 +1029,8 @@ src/
 │   ├── use-submodules.ts
 │   ├── use-checklist.ts
 │   ├── use-notes.ts
-│   └── use-files.ts
+│   ├── use-files.ts
+│   └── use-layout.ts              # TanStack Query hooks for roadmap layout
 │
 ├── stores/
 │   └── ui-store.ts                 # Zustand: sidebar state, modals, theme
@@ -817,12 +1060,26 @@ src/
 
 | Task | Details |
 |---|---|
-| Roadmap API + UI | CRUD endpoints, dashboard grid with cards, create/edit dialog |
+| Roadmap API + UI | CRUD endpoints, dashboard grid with cards, create/edit dialog, JSON import dialog |
+| JSON import | Import schema validation, preview tree, bulk-create API, paste JSON + upload file UI |
 | Module API + UI | CRUD endpoints, module list within roadmap, expand/collapse |
 | SubModule API + UI | CRUD endpoints, submodule cards, status dropdown, due date |
 | Progress calculation | Auto-compute at all levels, display progress bars |
 
-### Phase 3: Checklist & Notes (Week 3)
+### Phase 3: Visual Roadmap (Week 3)
+
+| Task | Details |
+|---|---|
+| React Flow setup | Install @xyflow/react, create flow-canvas wrapper component, custom node types |
+| Custom node components | Module node, SubModule node, root Roadmap node with status colors and progress |
+| Lock mode (Preview) | Read-only canvas with pan/zoom, node click for details, right-click status context menu, minimap |
+| Edit mode | Free-form node drag, inline title edit, add/delete nodes via double-click/toolbar, edge creation |
+| Layout API + persistence | GET/PUT layout endpoints, RoadmapLayout Mongoose model, auto-save (30s debounce) |
+| Editor page | Full-screen `/roadmap/:id/editor` route with toolbar (save, auto-layout, zoom, undo/redo) |
+| Auto-layout | Dagre integration for one-click top-down tree arrangement |
+| Layout sync | Auto-create nodes when modules/submodules are added via list view; remove orphaned nodes on layout load |
+
+### Phase 4: Checklist & Notes (Week 4)
 
 | Task | Details |
 |---|---|
@@ -831,7 +1088,7 @@ src/
 | Notes API + UI | CRUD for notes attached to any entity level |
 | Drag-and-drop | @dnd-kit for modules, submodules, checklist reorder |
 
-### Phase 4: Files & Polish (Week 4)
+### Phase 5: Files & Polish (Week 5)
 
 | Task | Details |
 |---|---|
@@ -843,14 +1100,15 @@ src/
 | Mobile responsive | Test and fix all views at 375px and 768px |
 | Error handling | Global error boundary, API error formatting |
 
-### Phase 5: Enhancements (Week 5, optional)
+### Phase 6: Enhancements (Week 6, optional)
 
 | Task | Details |
 |---|---|
 | Dark mode | System preference detection, manual toggle |
 | Keyboard shortcuts | `Ctrl+N` new item, `Enter` quick-add, `Escape` cancel |
 | Search | Quick search across roadmaps, modules, submodules |
-| Data export | Export roadmap as JSON for backup |
+| JSON export | Export roadmap as JSON matching import schema, downloadable file |
+| AI prompt template | In-app copyable prompt for generating roadmaps via ChatGPT/Gemini/Claude |
 
 ---
 
@@ -864,6 +1122,11 @@ src/
 | TipTap bundle size | Low | Dynamic import (`next/dynamic`) with SSR disabled. Load only on note editing. |
 | MongoDB connection limits | Low | Singleton connection pattern. Connection pooling configured. |
 | Over-engineering data model | Medium | Start with denormalized `roadmapId` on child documents for query efficiency. Avoid joins. |
+| React Flow performance with large graphs | Medium | Limit visible nodes via viewport culling (built into @xyflow/react). Lazy-load node detail data. Cap at ~200 nodes per roadmap. |
+| Layout data sync with CRUD operations | Medium | When modules/submodules are created or deleted via list view, auto-add/remove nodes in layout. Orphan cleanup on layout load. |
+| Visual editor complexity/scope creep | High | Lock mode is P0, edit mode is P0 but keep features minimal. Defer node resize (P2), custom edge styles (P2), grouping (future). |
+| Malformed JSON import crashing server | Medium | Strict schema validation on client AND server. Size limits enforced. Atomic transaction with rollback on partial failure. |
+| AI-generated JSON inconsistency | Low | Schema is intentionally simple (no IDs, no nested references). AI tools produce valid output 95%+ of the time. Validation catches the rest. |
 
 ---
 
@@ -903,6 +1166,12 @@ S3_SECRET_KEY=<do-spaces-secret-key>
 | **Presigned URLs for file upload** | Direct client-to-S3 upload avoids Next.js server as bottleneck. Reduces server memory usage. |
 | **API versioning (`/api/v1`)** | Future-proofs for breaking API changes if SaaS conversion happens. |
 | **Separate Note entity** | Polymorphic attachment to any entity level allows flexible note placement without schema changes. |
+| **@xyflow/react for visual canvas** | Most mature React node-graph library. Built-in pan/zoom, minimap, custom nodes, edge routing. Active maintenance, works with React 19. |
+| **Separate RoadmapLayout entity** | Decouples visual positioning from structural data. Modules/SubModules stay clean. Layout is loaded only when visual view is active. |
+| **Dagre for auto-layout** | Lightweight directed-graph layout algorithm. Produces clean top-down tree structures. Runs client-side, no server dependency. |
+| **Lock mode as default** | Prevents accidental edits. Most interactions are viewing/tracking progress, not restructuring. Edit mode is an explicit opt-in. |
+| **Simple import schema (no IDs)** | Import JSON uses only titles and content — no ObjectIds, no order fields, no createdBy. Server generates all IDs and metadata. This makes the schema trivial for AI tools to produce and for users to hand-write. |
+| **Atomic import via transaction** | Bulk import uses a MongoDB transaction. All-or-nothing: if any entity fails to create, everything rolls back. No orphaned partial roadmaps. |
 
 ---
 
